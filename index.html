@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Asana Timeline Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Asana CSV Timeline</p>
+        <h1 id="projectTitle">タスクタイムライン</h1>
+      </div>
+      <div class="header-actions">
+        <button class="button secondary" id="pdfButton" type="button">PDF出力</button>
+        <button class="button secondary" id="templateButton" type="button">CSVテンプレート</button>
+        <button class="button secondary danger" id="clearSavedButton" type="button">保存データ削除</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="import-panel" aria-label="CSV読み込み">
+        <label class="drop-zone" id="dropZone">
+          <input id="csvInput" type="file" accept=".csv,text/csv">
+          <span class="drop-icon">CSV</span>
+          <span class="drop-title">Asanaから出力したCSVを読み込む</span>
+          <span class="drop-copy">ファイルを選択、またはここへドラッグ&ドロップ</span>
+        </label>
+        <div class="import-meta">
+          <span id="sourceStatus">未読み込み</span>
+          <span id="savedStatus">localStorage保存: なし</span>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="表示設定">
+        <div class="control-group">
+          <label for="scaleSelect">表示単位</label>
+          <select id="scaleSelect">
+            <option value="day">日</option>
+            <option value="week" selected>週</option>
+            <option value="month">月</option>
+            <option value="quarter">四半期</option>
+            <option value="half">半年</option>
+            <option value="year">年</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="searchInput">検索</label>
+          <input id="searchInput" type="search" placeholder="タスク名・担当者・セクション">
+        </div>
+        <div class="control-group">
+          <label for="assigneeSelect">担当者</label>
+          <select id="assigneeSelect">
+            <option value="">すべて</option>
+          </select>
+        </div>
+        <label class="check-control">
+          <input id="hideCompleted" type="checkbox">
+          <span>完了を隠す</span>
+        </label>
+      </section>
+
+      <section class="summary" aria-label="集計">
+        <div>
+          <span class="summary-label">タスク</span>
+          <strong id="taskCount">0</strong>
+        </div>
+        <div>
+          <span class="summary-label">未完了</span>
+          <strong id="openCount">0</strong>
+        </div>
+        <div>
+          <span class="summary-label">完了</span>
+          <strong id="doneCount">0</strong>
+        </div>
+        <div>
+          <span class="summary-label">期間</span>
+          <strong id="dateRange">-</strong>
+        </div>
+      </section>
+
+      <section class="legend-panel" aria-label="担当者別カラー">
+        <h2>担当者別カラー</h2>
+        <div id="legend" class="legend"></div>
+      </section>
+
+      <section class="timeline-panel" aria-label="タイムライン">
+        <div id="emptyState" class="empty-state">
+          <strong>CSVを読み込むとタイムラインを表示します。</strong>
+          <span>列名は `Name`, `Section/Column`, `Assignee`, `Start Date`, `Due Date`, `Completed At` に対応しています。</span>
+        </div>
+        <div id="timeline" class="timeline" hidden></div>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>

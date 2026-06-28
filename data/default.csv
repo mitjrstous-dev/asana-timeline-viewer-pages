@@ -1,0 +1,5 @@
+﻿Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task,Blocked By (Dependencies),Blocking (Dependencies),ID
+SAMPLE-001,,,,プロジェクト計画を作成,0. プロジェクト計画,サンプル担当者,,2026/07/01,2026/07/05,,サンプルデータです。実案件情報は含まれていません。,サンプルプロジェクト,,,,ID-SAMPLE-001
+SAMPLE-002,,,,現行サイトの棚卸,1. 既存Webサイト調査・棚卸,サンプル担当者,,2026/07/06,2026/07/12,,サンプルデータです。,サンプルプロジェクト,,プロジェクト計画を作成,,ID-SAMPLE-002
+SAMPLE-003,,,,要件定義を完了,2. 要件定義・スコープ定義,別担当者,,2026/07/13,2026/07/19,,サンプルデータです。,サンプルプロジェクト,,現行サイトの棚卸,,ID-SAMPLE-003
+SAMPLE-004,,,,マイルストーンレビュー,3. 開発・レビュー,別担当者,,,2026/07/20,,開始日なしのためマイルストーン表示になります。,サンプルプロジェクト,,要件定義を完了,,ID-SAMPLE-004
