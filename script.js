@@ -42,6 +42,9 @@ let state = {
 };
 
 let timelineLayoutFrame = 0;
+let standaloneAssetCache = null;
+let standaloneAssetPromise = null;
+let lastDownloadUrl = null;
 
 init();
 
@@ -51,6 +54,7 @@ window.asanaTimelineApp = {
 
 function init() {
   bindEvents();
+  prepareStandaloneAssets();
   restoreSavedCsv();
 }
 
@@ -135,14 +139,20 @@ function exportPdf() {
   window.print();
 }
 
-async function exportStandaloneHtml() {
+function exportStandaloneHtml() {
   if (!state.rawCsv || !state.tasks.length) {
     window.alert("HTML出力するタスクがありません。CSVを読み込んでから実行してください。");
     return;
   }
 
+  if (!standaloneAssetCache) {
+    prepareStandaloneAssets();
+    window.alert("HTML出力の準備中です。数秒後にもう一度実行してください。");
+    return;
+  }
+
   try {
-    const html = await buildStandaloneHtml();
+    const html = buildStandaloneHtml(standaloneAssetCache);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     downloadBlob(blob, `${getBaseFileName(state.fileName || "asana-timeline")}.html`);
   } catch (error) {
@@ -705,14 +715,14 @@ function showEmpty(title, copy) {
   els.emptyState.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span>`;
 }
 
-async function buildStandaloneHtml() {
+function buildStandaloneHtml(assets = standaloneAssetCache) {
+  if (!assets) throw new Error("HTML出力の準備が完了していません。");
+
   const clone = document.documentElement.cloneNode(true);
   const head = clone.querySelector("head");
   const body = clone.querySelector("body");
   if (!head || !body) throw new Error("HTMLの構成を取得できませんでした。");
 
-  const css = await collectLinkedStyles();
-  const appScript = await collectLinkedScripts();
   const payload = {
     rawCsv: state.rawCsv,
     fileName: state.fileName,
@@ -727,7 +737,7 @@ async function buildStandaloneHtml() {
   });
 
   const style = document.createElement("style");
-  style.textContent = css;
+  style.textContent = assets.css;
   head.appendChild(style);
 
   const dataScript = document.createElement("script");
@@ -737,15 +747,33 @@ async function buildStandaloneHtml() {
   body.appendChild(dataScript);
 
   const script = document.createElement("script");
-  script.textContent = appScript.replace(/<\/script/gi, "<\\/script");
+  script.textContent = assets.appScript.replace(/<\/script/gi, "<\\/script");
   body.appendChild(script);
 
   return `<!doctype html>\n${clone.outerHTML}\n`;
 }
 
+function prepareStandaloneAssets() {
+  if (standaloneAssetCache) return Promise.resolve(standaloneAssetCache);
+  if (!standaloneAssetPromise) {
+    standaloneAssetPromise = Promise.all([collectLinkedStyles(), collectLinkedScripts()])
+      .then(([css, appScript]) => {
+        standaloneAssetCache = { css, appScript };
+        return standaloneAssetCache;
+      })
+      .catch(error => {
+        standaloneAssetPromise = null;
+        console.error("HTML export asset preload failed", error);
+        throw error;
+      });
+  }
+  return standaloneAssetPromise;
+}
+
 async function collectLinkedStyles() {
+  const inlineStyles = [...document.querySelectorAll("style")].map(style => style.textContent || "");
   const links = [...document.querySelectorAll('link[rel="stylesheet"][href]')];
-  const css = [];
+  const css = [...inlineStyles];
   for (const link of links) {
     css.push(await fetchTextAsset(link.href, "CSS"));
   }
@@ -753,8 +781,11 @@ async function collectLinkedStyles() {
 }
 
 async function collectLinkedScripts() {
+  const inlineScripts = [...document.querySelectorAll("script:not([src])")]
+    .filter(script => script.type !== "application/json")
+    .map(script => script.textContent || "");
   const scripts = [...document.querySelectorAll("script[src]")];
-  const js = [];
+  const js = [...inlineScripts];
   for (const script of scripts) {
     js.push(await fetchTextAsset(script.src, "JavaScript"));
   }
@@ -808,12 +839,32 @@ function applyTimelineControls(controls) {
 }
 
 function downloadBlob(blob, fileName) {
+  if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
+
   const url = URL.createObjectURL(blob);
+  lastDownloadUrl = url;
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  showDownloadLink(url, fileName);
+}
+
+function showDownloadLink(url, fileName) {
+  let link = document.querySelector("#downloadFallback");
+  if (!link) {
+    link = document.createElement("a");
+    link.id = "downloadFallback";
+    link.className = "button secondary";
+    els.clearSavedButton.insertAdjacentElement("beforebegin", link);
+  }
+
+  link.href = url;
+  link.download = fileName;
+  link.textContent = `保存: ${fileName}`;
 }
 
 function getBaseFileName(fileName) {
