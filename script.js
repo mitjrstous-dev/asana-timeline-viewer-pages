@@ -1,6 +1,7 @@
 const STORAGE_KEY = "asanaTimelineCsv:v1";
 const DEFAULT_CSV_URL = "data/default.csv";
 const DEFAULT_CSV_NAME = "sample-project.csv";
+const EMBEDDED_EXPORT_ID = "asanaTimelineEmbeddedExport";
 
 const els = {
   csvInput: document.querySelector("#csvInput"),
@@ -20,6 +21,7 @@ const els = {
   emptyState: document.querySelector("#emptyState"),
   timeline: document.querySelector("#timeline"),
   pdfButton: document.querySelector("#pdfButton"),
+  htmlButton: document.querySelector("#htmlButton"),
   templateButton: document.querySelector("#templateButton"),
   clearSavedButton: document.querySelector("#clearSavedButton")
 };
@@ -42,6 +44,10 @@ let state = {
 let timelineLayoutFrame = 0;
 
 init();
+
+window.asanaTimelineApp = {
+  buildStandaloneHtml
+};
 
 function init() {
   bindEvents();
@@ -87,6 +93,7 @@ function bindEvents() {
 
   els.templateButton.addEventListener("click", downloadTemplate);
   els.pdfButton.addEventListener("click", exportPdf);
+  els.htmlButton.addEventListener("click", exportStandaloneHtml);
   els.timeline.addEventListener("wheel", handleTimelineWheel, { passive: false });
 
   window.addEventListener("resize", () => {
@@ -128,7 +135,28 @@ function exportPdf() {
   window.print();
 }
 
+async function exportStandaloneHtml() {
+  if (!state.rawCsv || !state.tasks.length) {
+    window.alert("HTML出力するタスクがありません。CSVを読み込んでから実行してください。");
+    return;
+  }
+
+  try {
+    const html = await buildStandaloneHtml();
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    downloadBlob(blob, `${getBaseFileName(state.fileName || "asana-timeline")}.html`);
+  } catch (error) {
+    window.alert(`HTML出力に失敗しました: ${error.message}`);
+  }
+}
+
 function restoreSavedCsv() {
+  const embedded = getEmbeddedExport();
+  if (embedded?.rawCsv) {
+    loadCsv(embedded.rawCsv, embedded.fileName || "exported.csv", embedded.loadedAt || "", false, embedded.controls);
+    return;
+  }
+
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) {
     updateSavedStatus();
@@ -158,7 +186,7 @@ async function loadDefaultCsv() {
   }
 }
 
-function loadCsv(rawCsv, fileName, loadedAt, shouldSave) {
+function loadCsv(rawCsv, fileName, loadedAt, shouldSave, controls = null) {
   const rows = parseCsv(rawCsv);
   const tasks = normalizeRows(rows);
 
@@ -174,6 +202,7 @@ function loadCsv(rawCsv, fileName, loadedAt, shouldSave) {
   }
 
   populateAssigneeFilter(tasks);
+  if (controls) applyTimelineControls(controls);
   updateSavedStatus();
   render();
 }
@@ -676,16 +705,127 @@ function showEmpty(title, copy) {
   els.emptyState.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(copy)}</span>`;
 }
 
+async function buildStandaloneHtml() {
+  const clone = document.documentElement.cloneNode(true);
+  const head = clone.querySelector("head");
+  const body = clone.querySelector("body");
+  if (!head || !body) throw new Error("HTMLの構成を取得できませんでした。");
+
+  const css = await collectLinkedStyles();
+  const appScript = await collectLinkedScripts();
+  const payload = {
+    rawCsv: state.rawCsv,
+    fileName: state.fileName,
+    loadedAt: state.loadedAt || new Date().toISOString(),
+    controls: getTimelineControls()
+  };
+
+  clone.querySelectorAll('link[rel="stylesheet"]').forEach(element => element.remove());
+  clone.querySelectorAll("script").forEach(element => element.remove());
+  clone.querySelectorAll('input[type="file"]').forEach(input => {
+    input.removeAttribute("value");
+  });
+
+  const style = document.createElement("style");
+  style.textContent = css;
+  head.appendChild(style);
+
+  const dataScript = document.createElement("script");
+  dataScript.id = EMBEDDED_EXPORT_ID;
+  dataScript.type = "application/json";
+  dataScript.textContent = JSON.stringify(payload).replace(/</g, "\\u003c");
+  body.appendChild(dataScript);
+
+  const script = document.createElement("script");
+  script.textContent = appScript.replace(/<\/script/gi, "<\\/script");
+  body.appendChild(script);
+
+  return `<!doctype html>\n${clone.outerHTML}\n`;
+}
+
+async function collectLinkedStyles() {
+  const links = [...document.querySelectorAll('link[rel="stylesheet"][href]')];
+  const css = [];
+  for (const link of links) {
+    css.push(await fetchTextAsset(link.href, "CSS"));
+  }
+  return css.join("\n\n");
+}
+
+async function collectLinkedScripts() {
+  const scripts = [...document.querySelectorAll("script[src]")];
+  const js = [];
+  for (const script of scripts) {
+    js.push(await fetchTextAsset(script.src, "JavaScript"));
+  }
+  return js.join("\n\n");
+}
+
+async function fetchTextAsset(url, label) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`${label}を取得できませんでした: ${response.status}`);
+    return await response.text();
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error(`${label}の取得がタイムアウトしました。`);
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function getEmbeddedExport() {
+  const element = document.getElementById(EMBEDDED_EXPORT_ID);
+  if (!element?.textContent) return null;
+
+  try {
+    return JSON.parse(element.textContent);
+  } catch {
+    return null;
+  }
+}
+
+function getTimelineControls() {
+  return {
+    scale: els.scaleSelect.value,
+    search: els.searchInput.value,
+    assignee: els.assigneeSelect.value,
+    hideCompleted: els.hideCompleted.checked
+  };
+}
+
+function applyTimelineControls(controls) {
+  if (controls.scale && [...els.scaleSelect.options].some(option => option.value === controls.scale)) {
+    els.scaleSelect.value = controls.scale;
+  }
+  els.searchInput.value = controls.search || "";
+  if (controls.assignee && [...els.assigneeSelect.options].some(option => option.value === controls.assignee)) {
+    els.assigneeSelect.value = controls.assignee;
+  }
+  els.hideCompleted.checked = Boolean(controls.hideCompleted);
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getBaseFileName(fileName) {
+  const base = fileName.replace(/\.[^.]+$/, "").trim() || "asana-timeline";
+  return base.replace(/[\\/:*?"<>|]+/g, "_");
+}
+
 function downloadTemplate() {
   const header = "Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task,Blocked By (Dependencies),Blocking (Dependencies),ID";
   const sample = "1,,,,Sample Task,0. Project Planning,Sample Owner,,2026/07/01,2026/07/05,,,Sample Project,,,,ID-00001";
   const blob = new Blob([`${header}\n${sample}\n`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "asana-timeline-template.csv";
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, "asana-timeline-template.csv");
 }
 
 function startOfWeek(date) {
