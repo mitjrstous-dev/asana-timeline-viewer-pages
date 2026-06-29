@@ -1,6 +1,6 @@
 const STORAGE_KEY = "asanaTimelineCsv:v1";
 const DEFAULT_CSV_URL = "data/default.csv";
-const DEFAULT_CSV_NAME = "サンプルプロジェクト.csv";
+const DEFAULT_CSV_NAME = "sample-project.csv";
 
 const els = {
   csvInput: document.querySelector("#csvInput"),
@@ -38,6 +38,8 @@ let state = {
   assigneeColors: new Map(),
   renderedTasks: []
 };
+
+let timelineLayoutFrame = 0;
 
 init();
 
@@ -85,12 +87,15 @@ function bindEvents() {
 
   els.templateButton.addEventListener("click", downloadTemplate);
   els.pdfButton.addEventListener("click", exportPdf);
+  els.timeline.addEventListener("wheel", handleTimelineWheel, { passive: false });
 
   window.addEventListener("resize", () => {
     if (!els.timeline.hidden && state.renderedTasks.length) {
-      requestAnimationFrame(() => drawDependencyLayer(state.renderedTasks));
+      requestTimelineLayoutSync();
     }
   });
+
+  window.addEventListener("scroll", requestTimelineLayoutSync, { passive: true });
 
   window.addEventListener("beforeprint", () => {
     if (!els.timeline.hidden && state.renderedTasks.length) {
@@ -313,7 +318,44 @@ function render() {
   els.timeline.hidden = false;
   els.timeline.innerHTML = buildTimelineHtml(filtered);
   state.renderedTasks = filtered;
-  requestAnimationFrame(() => drawDependencyLayer(filtered));
+  requestTimelineLayoutSync();
+}
+
+function requestTimelineLayoutSync() {
+  if (timelineLayoutFrame) return;
+  timelineLayoutFrame = requestAnimationFrame(() => {
+    timelineLayoutFrame = 0;
+    syncTimelineViewportHeight();
+    if (!els.timeline.hidden && state.renderedTasks.length) {
+      drawDependencyLayer(state.renderedTasks);
+    }
+  });
+}
+
+function syncTimelineViewportHeight() {
+  if (els.timeline.hidden) return;
+  const body = els.timeline.querySelector(".timeline-body");
+  if (!body) return;
+  const rect = body.getBoundingClientRect();
+  const availableHeight = window.innerHeight - Math.max(0, rect.top) - 24;
+  const height = Math.max(480, Math.min(780, availableHeight));
+  els.timeline.style.setProperty("--timeline-body-max-height", `${height}px`);
+}
+
+function handleTimelineWheel(event) {
+  if (els.timeline.hidden) return;
+  const body = els.timeline.querySelector(".timeline-body");
+  if (!body) return;
+
+  const maxScrollTop = body.scrollHeight - body.clientHeight;
+  const maxScrollLeft = els.timeline.scrollWidth - els.timeline.clientWidth;
+  if (maxScrollTop <= 0 && maxScrollLeft <= 0) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  body.scrollTop = clamp(body.scrollTop + event.deltaY, 0, maxScrollTop);
+  els.timeline.scrollLeft = clamp(els.timeline.scrollLeft + event.deltaX, 0, maxScrollLeft);
 }
 
 function getFilteredTasks() {
@@ -362,7 +404,7 @@ function buildTimelineHtml(tasks) {
       ${rows}`;
   }).join("");
 
-  return `<div class="timeline-root" style="--unit-width: ${unitWidth}px;">${header}${body}<svg class="dependency-layer" aria-hidden="true"></svg></div>`;
+  return `<div class="timeline-root" style="--unit-width: ${unitWidth}px;">${header}<div class="timeline-body">${body}<svg class="dependency-layer" aria-hidden="true"></svg></div></div>`;
 }
 
 function buildTaskRow(task, rangeStart, scale, unitWidth, unitCount) {
@@ -424,8 +466,9 @@ function getTaskGeometry(task, rangeStart, scale, unitWidth) {
 
 function drawDependencyLayer(tasks) {
   const root = els.timeline.querySelector(".timeline-root");
+  const body = els.timeline.querySelector(".timeline-body");
   const svg = els.timeline.querySelector(".dependency-layer");
-  if (!root || !svg) return;
+  if (!root || !body || !svg) return;
 
   const visualMap = new Map();
   root.querySelectorAll(".task-visual").forEach(element => {
@@ -433,8 +476,9 @@ function drawDependencyLayer(tasks) {
   });
 
   const rootRect = root.getBoundingClientRect();
+  const bodyRect = body.getBoundingClientRect();
   const width = Math.max(root.scrollWidth, rootRect.width);
-  const height = Math.max(root.scrollHeight, rootRect.height);
+  const height = Math.max(body.scrollHeight, bodyRect.height);
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -449,9 +493,9 @@ function drawDependencyLayer(tasks) {
     const sourceIsMilestone = sourceElement.classList.contains("task-milestone");
     const targetIsMilestone = targetElement.classList.contains("task-milestone");
     const x1 = (sourceIsMilestone ? sourceRect.left + sourceRect.width / 2 : sourceRect.right) - rootRect.left;
-    const y1 = sourceRect.top + sourceRect.height / 2 - rootRect.top;
+    const y1 = sourceRect.top + sourceRect.height / 2 - bodyRect.top + body.scrollTop;
     const x2 = (targetIsMilestone ? targetRect.left - 6 : targetRect.left) - rootRect.left;
-    const y2 = targetRect.top + targetRect.height / 2 - rootRect.top;
+    const y2 = targetRect.top + targetRect.height / 2 - bodyRect.top + body.scrollTop;
     const midX = x2 >= x1 ? (x1 + x2) / 2 : Math.max(x1 + 36, x2 + 36);
     const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
     const title = `${arrow.source.name} -> ${arrow.target.name}`;
@@ -634,7 +678,7 @@ function showEmpty(title, copy) {
 
 function downloadTemplate() {
   const header = "Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task,Blocked By (Dependencies),Blocking (Dependencies),ID";
-  const sample = "1,,,,サンプルタスク,0. プロジェクト計画,サンプル担当者,,2026/07/01,2026/07/05,,,サンプルプロジェクト,,,,ID-00001";
+  const sample = "1,,,,Sample Task,0. Project Planning,Sample Owner,,2026/07/01,2026/07/05,,,Sample Project,,,,ID-00001";
   const blob = new Blob([`${header}\n${sample}\n`], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -698,6 +742,10 @@ function formatUnit(date, scale) {
 
 function formatDate(date) {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function escapeHtml(value) {

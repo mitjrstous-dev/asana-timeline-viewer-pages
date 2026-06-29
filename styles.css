@@ -252,7 +252,7 @@ input[type="search"] {
 }
 
 .timeline-panel {
-  overflow: auto;
+  overflow: hidden;
 }
 
 .empty-state {
@@ -264,11 +264,15 @@ input[type="search"] {
 
 .timeline {
   min-width: 920px;
-  padding: 0 0 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  padding: 0;
 }
 
 .timeline-root {
   position: relative;
+  min-width: max-content;
 }
 
 .time-header,
@@ -278,11 +282,18 @@ input[type="search"] {
 }
 
 .time-header {
-  position: sticky;
-  top: 0;
   z-index: 5;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+}
+
+.timeline-body {
+  position: relative;
+  max-height: var(--timeline-body-max-height, min(70vh, 720px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 18px;
 }
 
 .corner-cell,
@@ -537,6 +548,11 @@ input[type="search"] {
   }
 
   .timeline {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .timeline-body {
     max-height: none;
     overflow: visible;
   }
